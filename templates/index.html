@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Video Downloader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Video Downloader</h1>
+        <form id="downloadForm">
+            <div>
+                <label for="url">YouTube URL:</label>
+                <input type="text" id="url" name="url" required>
+            </div>
+            <div>
+                <label for="format">Format:</label>
+                <select id="format" name="format">
+                    <option value="360p">360p</option>
+                    <option value="480p">480p</option>
+                    <option value="720p">720p</option>
+                </select>
+            </div>
+            <button type="submit">Download</button>
+        </form>
+        <div id="message"></div>
+    </div>
+    <script>
+        document.getElementById('downloadForm').onsubmit = async function(event) {
+            event.preventDefault();
+            const url = document.getElementById('url').value;
+            const format = document.getElementById('format').value;
+
+            const response = await fetch('/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, format })
+            });
+
+            const messageDiv = document.getElementById('message');
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'video.mp4';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                messageDiv.textContent = "Download started!";
+            } else {
+                const error = await response.json();
+                messageDiv.textContent = `Error: ${error.error}`;
+            }
+        };
+    </script>
+</body>
+</html>
