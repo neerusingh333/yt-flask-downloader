@@ -1,10 +1,15 @@
-from flask import Flask, request, send_file, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response, send_file
 from flask_cors import CORS
 from pytube import YouTube
 import os
+import threading
+import time
+import ffmpeg
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # Enable CORS with credentials
+CORS(app, supports_credentials=True)
+
+progress_data = {}
 
 @app.after_request
 def after_request(response):
@@ -14,7 +19,6 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Credentials', 'true')
     return response
 
-# Serve the HTML form
 @app.route("/", methods=['GET'])
 def serve_html_form():
     return render_template('index.html')
@@ -22,32 +26,77 @@ def serve_html_form():
 @app.route('/download', methods=['POST', 'OPTIONS'])
 def download_video():
     if request.method == 'OPTIONS':
-        # Handle preflight request
         return '', 200
-
+    
     data = request.json
     url = data['url']
-    format = data['format']
+    resolution = data['format']
+    download_id = str(int(time.time()))
+    progress_data[download_id] = 0
+    
+    def download():
+        try:
+            yt = YouTube(url, on_progress_callback=lambda stream, chunk, bytes_remaining: update_progress(download_id, bytes_remaining, stream.filesize))
+            
+            # Try to get the highest quality progressive stream
+            stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            
+            if not stream or stream.resolution != resolution:
+                video_stream = yt.streams.filter(res=resolution, file_extension='mp4').first()
+                audio_stream = yt.streams.filter(only_audio=True).first()
+                
+                if not video_stream or not audio_stream:
+                    progress_data[download_id] = 'error: No suitable streams found'
+                    return
+                
+                video_file = f'video_{download_id}.mp4'
+                audio_file = f'audio_{download_id}.mp4'
+                output_file = f'output_{download_id}.mp4'
+                
+                video_stream.download(filename=video_file)
+                audio_stream.download(filename=audio_file)
+                
+                # Merge video and audio using FFmpeg
+                input_video = ffmpeg.input(video_file)
+                input_audio = ffmpeg.input(audio_file)
+                ffmpeg.output(input_video, input_audio, output_file, vcodec='libx264', acodec='aac').overwrite_output().run(quiet=True)
+                
+                # Clean up temporary files
+                os.remove(video_file)
+                os.remove(audio_file)
+                
+                progress_data[download_id] = 'done'
+            else:
+                output_file = f'output_{download_id}.mp4'
+                stream.download(filename=output_file)
+                progress_data[download_id] = 'done'
+        except Exception as e:
+            progress_data[download_id] = f'error: {str(e)}'
+    
+    threading.Thread(target=download).start()
+    return jsonify({"download_id": download_id})
 
-    try:
-        yt = YouTube(url)
-        resolution_map = {
-            "360p": "360p",
-            "480p": "480p",
-            "720p": "720p"
-        }
+@app.route('/progress/<download_id>', methods=['GET'])
+def progress(download_id):
+    def generate():
+        while True:
+            progress = progress_data.get(download_id, 0)
+            yield f'data: {{"progress": "{progress}"}}\n\n'
+            if progress == 'done' or 'error' in str(progress):
+                break
+    return Response(generate(), mimetype='text/event-stream')
 
-        stream = yt.streams.filter(res=resolution_map[format], file_extension='mp4').first()
-
-        if not stream:
-            return jsonify({"error": "Stream not found"}), 404
-
-        file_path = 'video.mp4'
-        stream.download(filename=file_path)
+@app.route('/get_video/<download_id>', methods=['GET'])
+def get_video(download_id):
+    file_path = f'output_{download_id}.mp4'
+    if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True)
+    else:
+        return "File not found", 404
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def update_progress(download_id, bytes_remaining, total_size):
+    progress_percentage = int((1 - bytes_remaining / total_size) * 100)
+    progress_data[download_id] = progress_percentage
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

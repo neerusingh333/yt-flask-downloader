@@ -20,37 +20,68 @@
                     <option value="360p">360p</option>
                     <option value="480p">480p</option>
                     <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
                 </select>
             </div>
             <button type="submit">Download</button>
         </form>
         <div id="message"></div>
+        <div id="progressContainer" style="display:none;">
+            <progress id="progressBar" value="0" max="100"></progress>
+            <span id="progressText">0%</span>
+        </div>
+        <div id="downloadLink" style="display:none;">
+            <a href="#" id="videoLink">Download Video</a>
+        </div>
     </div>
     <script>
         document.getElementById('downloadForm').onsubmit = async function(event) {
             event.preventDefault();
             const url = document.getElementById('url').value;
             const format = document.getElementById('format').value;
-
+            
+            const messageDiv = document.getElementById('message');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const downloadLink = document.getElementById('downloadLink');
+            
+            // Reset previous messages and progress
+            messageDiv.textContent = "";
+            progressContainer.style.display = 'none';
+            downloadLink.style.display = 'none';
+            
+            // Show "Download started" message
+            messageDiv.textContent = "Download started";
+            
             const response = await fetch('/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url, format })
             });
-
-            const messageDiv = document.getElementById('message');
-
+            
             if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = 'video.mp4';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                messageDiv.textContent = "Download started!";
+                const { download_id } = await response.json();
+                progressContainer.style.display = 'block';
+                
+                const eventSource = new EventSource(`/progress/${download_id}`);
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    const progress = data.progress;
+                    if (progress === 'done' || progress.includes('error')) {
+                        eventSource.close();
+                        if (progress === 'done') {
+                            messageDiv.textContent = "Download completed!";
+                            downloadLink.style.display = 'block';
+                            document.getElementById('videoLink').href = `/get_video/${download_id}`;
+                        } else {
+                            messageDiv.textContent = `Error: ${progress}`;
+                        }
+                    } else {
+                        progressBar.value = progress;
+                        progressText.textContent = `${progress}%`;
+                    }
+                };
             } else {
                 const error = await response.json();
                 messageDiv.textContent = `Error: ${error.error}`;
