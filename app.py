@@ -4,12 +4,20 @@ from pytube import YouTube
 import os
 import threading
 import time
-import ffmpeg
+import subprocess
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
 progress_data = {}
+
+# Check if FFmpeg is available
+try:
+    subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    FFMPEG_AVAILABLE = True
+except FileNotFoundError:
+    FFMPEG_AVAILABLE = False
+    print("Warning: FFmpeg not found. Video merging will not be available.")
 
 @app.after_request
 def after_request(response):
@@ -42,6 +50,10 @@ def download_video():
             stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             
             if not stream or stream.resolution != resolution:
+                if not FFMPEG_AVAILABLE:
+                    progress_data[download_id] = 'error: FFmpeg not available for high-resolution download'
+                    return
+                
                 video_stream = yt.streams.filter(res=resolution, file_extension='mp4').first()
                 audio_stream = yt.streams.filter(only_audio=True).first()
                 
@@ -57,9 +69,12 @@ def download_video():
                 audio_stream.download(filename=audio_file)
                 
                 # Merge video and audio using FFmpeg
-                input_video = ffmpeg.input(video_file)
-                input_audio = ffmpeg.input(audio_file)
-                ffmpeg.output(input_video, input_audio, output_file, vcodec='libx264', acodec='aac').overwrite_output().run(quiet=True)
+                try:
+                    ffmpeg_command = f'ffmpeg -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
+                    subprocess.run(ffmpeg_command, shell=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    progress_data[download_id] = f'error: FFmpeg error - {str(e)}'
+                    return
                 
                 # Clean up temporary files
                 os.remove(video_file)
