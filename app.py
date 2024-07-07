@@ -11,9 +11,12 @@ CORS(app, supports_credentials=True)
 
 progress_data = {}
 
+# Path to the FFmpeg binary
+FFMPEG_BIN = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'ffmpeg.exe')
+
 # Check if FFmpeg is available
 try:
-    subprocess.run(['ffmpeg', '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([FFMPEG_BIN, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     FFMPEG_AVAILABLE = True
 except FileNotFoundError:
     FFMPEG_AVAILABLE = False
@@ -70,7 +73,7 @@ def download_video():
                 
                 # Merge video and audio using FFmpeg
                 try:
-                    ffmpeg_command = f'ffmpeg -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
+                    ffmpeg_command = f'{FFMPEG_BIN} -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
                     subprocess.run(ffmpeg_command, shell=True, check=True)
                 except subprocess.CalledProcessError as e:
                     progress_data[download_id] = f'error: FFmpeg error - {str(e)}'
@@ -105,7 +108,13 @@ def progress(download_id):
 def get_video(download_id):
     file_path = f'output_{download_id}.mp4'
     if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
+        try:
+            return send_file(file_path, as_attachment=True)
+        finally:
+            try:
+                os.remove(file_path)  # Delete the file after sending
+            except Exception as e:
+                print(f"Error deleting file: {e}")
     else:
         return "File not found", 404
 
