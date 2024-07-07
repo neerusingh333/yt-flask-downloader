@@ -12,7 +12,7 @@ CORS(app, supports_credentials=True)
 progress_data = {}
 
 # Path to the FFmpeg binary
-FFMPEG_BIN = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'ffmpeg.exe')
+FFMPEG_BIN = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'ffmpeg')
 
 # Check if FFmpeg is available
 try:
@@ -22,23 +22,12 @@ except FileNotFoundError:
     FFMPEG_AVAILABLE = False
     print("Warning: FFmpeg not found. Video merging will not be available.")
 
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
-
 @app.route("/", methods=['GET'])
 def serve_html_form():
     return render_template('index.html')
 
-@app.route('/download', methods=['POST', 'OPTIONS'])
+@app.route('/download', methods=['POST'])
 def download_video():
-    if request.method == 'OPTIONS':
-        return '', 200
-    
     data = request.json
     url = data['url']
     resolution = data['format']
@@ -49,7 +38,6 @@ def download_video():
         try:
             yt = YouTube(url, on_progress_callback=lambda stream, chunk, bytes_remaining: update_progress(download_id, bytes_remaining, stream.filesize))
             
-            # Try to get the highest quality progressive stream
             stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
             
             if not stream or stream.resolution != resolution:
@@ -71,7 +59,6 @@ def download_video():
                 video_stream.download(filename=video_file)
                 audio_stream.download(filename=audio_file)
                 
-                # Merge video and audio using FFmpeg
                 try:
                     ffmpeg_command = f'{FFMPEG_BIN} -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
                     subprocess.run(ffmpeg_command, shell=True, check=True)
@@ -79,7 +66,6 @@ def download_video():
                     progress_data[download_id] = f'error: FFmpeg error - {str(e)}'
                     return
                 
-                # Clean up temporary files
                 os.remove(video_file)
                 os.remove(audio_file)
                 
@@ -112,7 +98,7 @@ def get_video(download_id):
             return send_file(file_path, as_attachment=True)
         finally:
             try:
-                os.remove(file_path)  # Delete the file after sending
+                os.remove(file_path)
             except Exception as e:
                 print(f"Error deleting file: {e}")
     else:
