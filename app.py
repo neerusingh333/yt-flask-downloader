@@ -5,22 +5,21 @@ import os
 import threading
 import time
 import subprocess
+import shutil
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
 progress_data = {}
 
-# Path to the FFmpeg binary
-FFMPEG_BIN = os.path.join(os.path.dirname(__file__), 'ffmpeg', 'ffmpeg')
-
 # Check if FFmpeg is available
-try:
-    subprocess.run([FFMPEG_BIN, '-version'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    FFMPEG_AVAILABLE = True
-except FileNotFoundError:
-    FFMPEG_AVAILABLE = False
+FFMPEG_BIN = shutil.which('ffmpeg')
+if FFMPEG_BIN is None:
     print("Warning: FFmpeg not found. Video merging will not be available.")
+    FFMPEG_AVAILABLE = False
+else:
+    FFMPEG_AVAILABLE = True
+    print(f"FFmpeg found at: {FFMPEG_BIN}")
 
 @app.route("/", methods=['GET'])
 def serve_html_form():

@@ -3,14 +3,10 @@ services:
     name: youtube-downloader
     env: python
     buildCommand: |
-      wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-      tar xvf ffmpeg-release-amd64-static.tar.xz
-      mkdir -p ffmpeg
-      mv ffmpeg-*-amd64-static/ffmpeg ffmpeg/
-      rm -rf ffmpeg-*-amd64-static ffmpeg-release-amd64-static.tar.xz
+      sudo apt-get update
+      sudo apt-get install -y ffmpeg
       pip install -r requirements.txt
     startCommand: gunicorn app:app
-    branch: main # or your default branch name
     envVars:
       - key: PORT
         value: 10000

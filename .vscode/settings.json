@@ -5,5 +5,6 @@
     "python.linting.enabled": false,
     "python.analysis.extraPaths": [
         "c:\\Users\\trc\\.vscode\\extensions\\stefanwehr.write-your-python-program-1.0.6\\python\\src\\"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "basic"
 }
