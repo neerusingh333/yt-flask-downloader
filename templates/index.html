@@ -52,37 +52,41 @@
             
             messageDiv.textContent = "Download started";
             
-            const response = await fetch('/download', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, format })
-            });
-            
-            if (response.ok) {
-                const { download_id } = await response.json();
-                progressContainer.style.display = 'block';
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, format })
+                });
                 
-                const eventSource = new EventSource(`/progress/${download_id}`);
-                eventSource.onmessage = function(event) {
-                    const data = JSON.parse(event.data);
-                    const progress = data.progress;
-                    if (progress === 'done' || progress.includes('error')) {
-                        eventSource.close();
-                        if (progress === 'done') {
-                            messageDiv.textContent = "Download completed!";
-                            downloadLink.style.display = 'block';
-                            document.getElementById('videoLink').href = `/get_video/${download_id}`;
+                if (response.ok) {
+                    const { download_id } = await response.json();
+                    progressContainer.style.display = 'block';
+                    
+                    const eventSource = new EventSource(`/progress/${download_id}`);
+                    eventSource.onmessage = function(event) {
+                        const data = JSON.parse(event.data);
+                        const progress = data.progress;
+                        if (progress === 'done' || progress.includes('error')) {
+                            eventSource.close();
+                            if (progress === 'done') {
+                                messageDiv.textContent = "Download completed!";
+                                downloadLink.style.display = 'block';
+                                document.getElementById('videoLink').href = `/get_video/${download_id}`;
+                            } else {
+                                messageDiv.textContent = `Error: ${progress}`;
+                            }
                         } else {
-                            messageDiv.textContent = `Error: ${progress}`;
+                            progressBar.value = progress;
+                            progressText.textContent = `${progress}%`;
                         }
-                    } else {
-                        progressBar.value = progress;
-                        progressText.textContent = `${progress}%`;
-                    }
-                };
-            } else {
-                const error = await response.json();
-                messageDiv.textContent = `Error: ${error.error}`;
+                    };
+                } else {
+                    const error = await response.json();
+                    messageDiv.textContent = `Error: ${error.error}`;
+                }
+            } catch (error) {
+                messageDiv.textContent = `Network error: ${error.message}`;
             }
         };
     </script>

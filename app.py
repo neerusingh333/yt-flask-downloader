@@ -6,20 +6,25 @@ import threading
 import time
 import subprocess
 import shutil
+import logging
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 progress_data = {}
 
 # Check if FFmpeg is available
 FFMPEG_BIN = shutil.which('ffmpeg')
 if FFMPEG_BIN is None:
-    print("Warning: FFmpeg not found. Video merging will not be available.")
+    logger.warning("FFmpeg not found. Video merging will not be available.")
     FFMPEG_AVAILABLE = False
 else:
     FFMPEG_AVAILABLE = True
-    print(f"FFmpeg found at: {FFMPEG_BIN}")
+    logger.info(f"FFmpeg found at: {FFMPEG_BIN}")
 
 @app.route("/", methods=['GET'])
 def serve_html_form():
@@ -55,26 +60,41 @@ def download_video():
                 audio_file = f'audio_{download_id}.mp4'
                 output_file = f'output_{download_id}.mp4'
                 
+                logger.info(f"Downloading video: {video_file}")
                 video_stream.download(filename=video_file)
+                logger.info(f"Downloading audio: {audio_file}")
                 audio_stream.download(filename=audio_file)
                 
                 try:
                     ffmpeg_command = f'{FFMPEG_BIN} -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
-                    subprocess.run(ffmpeg_command, shell=True, check=True)
+                    logger.info(f"Executing FFmpeg command: {ffmpeg_command}")
+                    result = subprocess.run(ffmpeg_command, shell=True, check=True, capture_output=True, text=True)
+                    logger.info(f"FFmpeg output: {result.stdout}")
                 except subprocess.CalledProcessError as e:
-                    progress_data[download_id] = f'error: FFmpeg error - {str(e)}'
+                    error_message = f"FFmpeg error - Return code: {e.returncode}, Output: {e.output}, Error: {e.stderr}"
+                    logger.error(error_message)
+                    progress_data[download_id] = f'error: {error_message}'
+                    return
+                except Exception as e:
+                    error_message = f"Unexpected error during FFmpeg execution: {str(e)}"
+                    logger.error(error_message)
+                    progress_data[download_id] = f'error: {error_message}'
                     return
                 
+                logger.info("Cleaning up temporary files")
                 os.remove(video_file)
                 os.remove(audio_file)
                 
                 progress_data[download_id] = 'done'
             else:
                 output_file = f'output_{download_id}.mp4'
+                logger.info(f"Downloading video: {output_file}")
                 stream.download(filename=output_file)
                 progress_data[download_id] = 'done'
         except Exception as e:
-            progress_data[download_id] = f'error: {str(e)}'
+            error_message = f"Error during download: {str(e)}"
+            logger.error(error_message)
+            progress_data[download_id] = f'error: {error_message}'
     
     threading.Thread(target=download).start()
     return jsonify({"download_id": download_id})
@@ -98,14 +118,16 @@ def get_video(download_id):
         finally:
             try:
                 os.remove(file_path)
+                logger.info(f"Deleted file: {file_path}")
             except Exception as e:
-                print(f"Error deleting file: {e}")
+                logger.error(f"Error deleting file: {e}")
     else:
         return "File not found", 404
 
 def update_progress(download_id, bytes_remaining, total_size):
     progress_percentage = int((1 - bytes_remaining / total_size) * 100)
     progress_data[download_id] = progress_percentage
+    logger.debug(f"Download progress for {download_id}: {progress_percentage}%")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
