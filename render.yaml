@@ -7,7 +7,12 @@ services:
       sudo apt-get install -y ffmpeg
       pip install -r requirements.txt
     startCommand: gunicorn --timeout 300 --workers 2 app:app
+    repo:https://github.com/neerusingh333/yt-flask-downloader.git # replace with your actual repository URL
+    branch: main # or your default branch name
     envVars:
       - key: PORT
         value: 10000
-   
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /
+    autoDeploy: true

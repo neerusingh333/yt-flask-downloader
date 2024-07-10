@@ -5,21 +5,23 @@ import os
 import threading
 import time
 import subprocess
+import logging
 import shutil
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 progress_data = {}
 
 # Check if FFmpeg is available
 FFMPEG_BIN = shutil.which('ffmpeg')
 if FFMPEG_BIN is None:
-    print("Warning: FFmpeg not found. Video merging will not be available.")
-    FFMPEG_AVAILABLE = False
-else:
-    FFMPEG_AVAILABLE = True
-    print(f"FFmpeg found at: {FFMPEG_BIN}")
+    logger.error("FFmpeg not found. Video merging will not be available.")
+    raise SystemExit("FFmpeg is required but not found. Please install FFmpeg and make sure it's in your PATH.")
 
 @app.route("/", methods=['GET'])
 def serve_html_form():
@@ -40,50 +42,59 @@ def process_video(url, resolution, download_id):
     try:
         yt = YouTube(url, on_progress_callback=lambda stream, chunk, bytes_remaining: update_progress(download_id, bytes_remaining, stream.filesize))
         
-        # Get the highest resolution video stream
         video_stream = yt.streams.filter(progressive=False, file_extension='mp4', resolution=resolution).first()
         if not video_stream:
             video_stream = yt.streams.filter(progressive=False, file_extension='mp4').order_by('resolution').desc().first()
         
-        # Get the audio stream
         audio_stream = yt.streams.filter(only_audio=True).first()
         
         if not video_stream or not audio_stream:
             progress_data[download_id] = 'error: No suitable streams found'
             return
         
-        # Download video and audio
         video_file = f'video_{download_id}.mp4'
         audio_file = f'audio_{download_id}.mp4'
         output_file = f'output_{download_id}.mp4'
         
+        logger.info(f"Downloading video: {video_file}")
         video_stream.download(filename=video_file)
+        logger.info(f"Downloading audio: {audio_file}")
         audio_stream.download(filename=audio_file)
         
-        # Merge video and audio using FFmpeg
-        if FFMPEG_AVAILABLE:
-            ffmpeg_command = f'{FFMPEG_BIN} -i {video_file} -i {audio_file} -c:v copy -c:a aac {output_file}'
-            subprocess.run(ffmpeg_command, shell=True, check=True)
-            
-            # Clean up temporary files
-            os.remove(video_file)
-            os.remove(audio_file)
-        else:
-            # If FFmpeg is not available, we'll just keep the video file
-            os.rename(video_file, output_file)
-            os.remove(audio_file)
+        logger.info("Merging video and audio with FFmpeg")
+        ffmpeg_command = [
+            FFMPEG_BIN,
+            '-i', video_file,
+            '-i', audio_file,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-strict', 'experimental',
+            output_file
+        ]
+        
+        try:
+            result = subprocess.run(ffmpeg_command, check=True, capture_output=True, text=True)
+            logger.info(f"FFmpeg output: {result.stdout}")
+        except subprocess.CalledProcessError as e:
+            error_message = f"FFmpeg error - Return code: {e.returncode}, Error: {e.stderr}"
+            logger.error(error_message)
+            progress_data[download_id] = f'error: {error_message}'
+            return
+        
+        logger.info("Cleaning up temporary files")
+        os.remove(video_file)
+        os.remove(audio_file)
         
         progress_data[download_id] = 'done'
     except Exception as e:
-        progress_data[download_id] = f'error: {str(e)}'
-        # Clean up any leftover files
-        for file in [f'video_{download_id}.mp4', f'audio_{download_id}.mp4', f'output_{download_id}.mp4']:
-            if os.path.exists(file):
-                os.remove(file)
+        error_message = f"Error during video processing: {str(e)}"
+        logger.error(error_message)
+        progress_data[download_id] = f'error: {error_message}'
 
 def update_progress(download_id, bytes_remaining, total_size):
     progress_percentage = int((1 - bytes_remaining / total_size) * 100)
     progress_data[download_id] = progress_percentage
+    logger.debug(f"Download progress for {download_id}: {progress_percentage}%")
 
 @app.route('/progress/<download_id>', methods=['GET'])
 def progress(download_id):
@@ -104,8 +115,9 @@ def get_video(download_id):
         finally:
             try:
                 os.remove(file_path)
+                logger.info(f"Deleted file: {file_path}")
             except Exception as e:
-                print(f"Error deleting file: {e}")
+                logger.error(f"Error deleting file: {e}")
     else:
         return "File not found", 404
 
