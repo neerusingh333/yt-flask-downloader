@@ -17,11 +17,38 @@ logger = logging.getLogger(__name__)
 
 progress_data = {}
 
-# Check if FFmpeg is available
-FFMPEG_BIN = shutil.which('ffmpeg')
+# Function to find FFmpeg
+def find_ffmpeg():
+    # Check if ffmpeg is in PATH
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    # Check common installation locations
+    common_locations = [
+        '/usr/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        '/opt/homebrew/bin/ffmpeg',  # For Mac with Homebrew
+        'C:\\ffmpeg\\bin\\ffmpeg.exe',  # For Windows
+    ]
+    for location in common_locations:
+        if os.path.isfile(location):
+            return location
+
+    # If on Render, check their specific location
+    render_ffmpeg = '/opt/render/project/src/.apt/usr/bin/ffmpeg'
+    if os.path.isfile(render_ffmpeg):
+        return render_ffmpeg
+
+    return None
+
+# Find FFmpeg
+FFMPEG_BIN = find_ffmpeg()
 if FFMPEG_BIN is None:
     logger.error("FFmpeg not found. Video merging will not be available.")
     raise SystemExit("FFmpeg is required but not found. Please install FFmpeg and make sure it's in your PATH.")
+else:
+    logger.info(f"FFmpeg found at: {FFMPEG_BIN}")
 
 @app.route("/", methods=['GET'])
 def serve_html_form():
